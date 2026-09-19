@@ -1,0 +1,100 @@
+name: Java CI
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # 1. Checkout source code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+
+      # 2. Set up Java
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+
+      # 3. Security - Dependency / Filesystem Scan
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+
+
+      # 4. Run unit tests
+      - name: Run tests
+        run: mvn clean test
+
+
+      # 5. Build JAR
+      - name: Build JAR
+        run: mvn package
+
+
+      # 6. Log in to GHCR
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: richu2000
+          password: ${{ secrets.GHCR_PAT }}
+
+
+      # 7. Build Docker image
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ghcr.io/${{ github.repository_owner }}/cicd-demo:1.0.1 .
+
+
+      # 8. Scan Docker image
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/cicd-demo:1.0.1
+          format: table
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+
+
+      # 9. Generate SBOM
+      - name: Generate SBOM
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/cicd-demo:1.0.1
+          format: cyclonedx
+          output: sbom.json
+
+
+      # 10. Upload SBOM
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+
+
+      # 11. Push Docker image
+      - name: Push Docker image
+        run: |
+          docker push \
+            ghcr.io/${{ github.repository_owner }}/cicd-demo:1.0.1
